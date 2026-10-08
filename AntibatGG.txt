@@ -1,0 +1,1603 @@
+--[[
+    Syn1ze Anti Bat + Anti Die + Anti Fling
+    Rediseño Premium - Dark Glass Style
+]]
+
+print("[Syn1ze Anti Bat] loading...")
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local CoreGui          = game:GetService("CoreGui")
+local HttpService      = game:GetService("HttpService")
+local GuiService       = game:GetService("GuiService")
+
+local localPlayer = Players.LocalPlayer
+
+-- ─── Tunables ────────────────────────────────────────────────────────────────
+local INF_JUMP_BOOST    = 55
+local INF_JUMP_MIN_Y    = 35
+local INF_JUMP_MAX_FALL = -120
+local ANTIBAT_RANGE     = 4000
+local ANTIDE_DELAY      = 0.1
+
+local BACKGROUND_IDS_CLASSIC = {
+    "122652725150439",
+    "119720606721586",
+    "120828426961716",
+    "131948413614727",
+}
+BACKGROUND_IDS_HALLOWEEN = {
+    "99812194621333",
+    "78055970320336",
+    "135764481621636",
+    "118545702689115",
+}
+BACKGROUND_IDS = BACKGROUND_IDS_CLASSIC
+
+local SIZE_PRESETS = { 0.75, 1.00, 1.25, 1.50 }
+local SIZE_LABELS  = { "75%", "100%", "125%", "150%" }
+
+local CONFIG_FILE = "syn1zeAntiBat_config.json"
+
+local config = {
+    AntiBatEnabled = false,
+    InfJumpEnabled = false,
+    AntiDieEnabled = false,
+    Keybind        = "V",
+    BackgroundId   = BACKGROUND_IDS[1],
+    MenuScale      = 0.75,
+    Locked         = false,
+    AntiBatMode    = 1,
+    Theme         = "Classic",
+}
+
+local bgIndex = 1
+local bgCells = {}
+
+local function saveConfig()
+    if writefile then
+        pcall(function()
+            writefile(CONFIG_FILE, HttpService:JSONEncode(config))
+        end)
+    end
+end
+
+local function loadConfig()
+    if isfile and isfile(CONFIG_FILE) then
+        local ok, result = pcall(function()
+            return HttpService:JSONDecode(readfile(CONFIG_FILE))
+        end)
+        if ok and type(result) == "table" then
+            if type(result.Keybind) == "string"         then config.Keybind = result.Keybind end
+            if type(result.AntiBatEnabled) == "boolean" then config.AntiBatEnabled = result.AntiBatEnabled end
+            if type(result.InfJumpEnabled) == "boolean" then config.InfJumpEnabled = result.InfJumpEnabled end
+            if type(result.AntiDieEnabled) == "boolean" then config.AntiDieEnabled = result.AntiDieEnabled end
+            if type(result.BackgroundId) == "string"    then config.BackgroundId = result.BackgroundId end
+            if type(result.MenuScale) == "number"       then config.MenuScale = result.MenuScale end
+            if type(result.Locked) == "boolean"         then config.Locked = result.Locked end
+            if type(result.AntiBatMode) == "number"      then config.AntiBatMode = math.clamp(math.floor(result.AntiBatMode), 1, 2) end
+            if result.Theme == "Classic" or result.Theme == "Halloween" then config.Theme = result.Theme end
+        end
+    end
+    for i, id in ipairs(BACKGROUND_IDS) do
+        if id == config.BackgroundId then bgIndex = i break end
+    end
+end
+
+-- ─── Anti-Bat ────────────────────────────────────────────────────────────────
+local antiBatConn   = nil
+local antiBatActive = false
+
+local ANTI_MODE_NAMES = {
+    [1] = "V1 Normal",
+    [2] = "V2 Orbital",
+}
+
+local function startAntiBat()
+    if antiBatConn then return end
+    antiBatActive = true
+    local phase = 0
+    antiBatConn = RunService.Heartbeat:Connect(function(dt)
+        if not antiBatActive then return end
+        local character = localPlayer.Character
+        if not character then return end
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local v = hrp.AssemblyLinearVelocity or hrp.Velocity
+        local mode = config.AntiBatMode or 1
+        phase = phase + (dt or 0.016)
+
+        if mode == 1 then
+            hrp.AssemblyLinearVelocity = Vector3.new(
+                math.random(-ANTIBAT_RANGE, ANTIBAT_RANGE),
+                v.Y,
+                math.random(-ANTIBAT_RANGE, ANTIBAT_RANGE)
+            )
+            RunService.RenderStepped:Wait()
+            if hrp and hrp.Parent then
+                hrp.AssemblyLinearVelocity = v
+            end
+        elseif mode == 2 then
+            local r = ANTIBAT_RANGE * 0.7
+            local ox = math.cos(phase * 16) * r
+            local oz = math.sin(phase * 16) * r
+            hrp.AssemblyLinearVelocity = Vector3.new(ox, v.Y, oz)
+            RunService.RenderStepped:Wait()
+            if hrp and hrp.Parent then
+                hrp.AssemblyLinearVelocity = v
+            end
+        else
+            hrp.AssemblyLinearVelocity = Vector3.new(
+                math.random(-ANTIBAT_RANGE, ANTIBAT_RANGE),
+                v.Y,
+                math.random(-ANTIBAT_RANGE, ANTIBAT_RANGE)
+            )
+            RunService.RenderStepped:Wait()
+            if hrp and hrp.Parent then
+                hrp.AssemblyLinearVelocity = v
+            end
+        end
+    end)
+end
+
+local function stopAntiBat()
+    antiBatActive = false
+    if antiBatConn then
+        antiBatConn:Disconnect()
+        antiBatConn = nil
+    end
+end
+
+-- ─── Inf Jump (Hold) ─────────────────────────────────────────────────────────
+local infJumpConn   = nil
+local infJumpActive = false
+
+local function applyInfJumpBoost(root)
+    if not root then return end
+    local velocity = root.AssemblyLinearVelocity
+    if velocity.Y < INF_JUMP_MIN_Y then
+        root.AssemblyLinearVelocity = Vector3.new(velocity.X, INF_JUMP_BOOST, velocity.Z)
+    end
+    if velocity.Y < INF_JUMP_MAX_FALL then
+        root.AssemblyLinearVelocity = Vector3.new(velocity.X, INF_JUMP_MAX_FALL, velocity.Z)
+    end
+end
+
+local function startInfJump()
+    if infJumpConn then return end
+    infJumpActive = true
+    config.InfJumpEnabled = true
+    infJumpConn = RunService.PreSimulation:Connect(function()
+        if not infJumpActive then return end
+        local char = localPlayer.Character
+        if not char then return end
+        local hum  = char:FindFirstChildOfClass("Humanoid")
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not root then return end
+        local held = UserInputService:IsKeyDown(Enum.KeyCode.Space)
+            or UserInputService:IsKeyDown(Enum.KeyCode.ButtonA)
+            or (hum.Jump == true)
+        if held then
+            applyInfJumpBoost(root)
+        else
+            local v = root.AssemblyLinearVelocity
+            if v.Y < INF_JUMP_MAX_FALL then
+                root.AssemblyLinearVelocity = Vector3.new(v.X, INF_JUMP_MAX_FALL, v.Z)
+            end
+        end
+    end)
+end
+
+local function stopInfJump()
+    infJumpActive = false
+    config.InfJumpEnabled = false
+    if infJumpConn then
+        infJumpConn:Disconnect()
+        infJumpConn = nil
+    end
+end
+
+-- ─── Anti Die + Anti Fling (Integrado) ────────────────────────────────────────
+local antiDieConn   = nil
+local antiDieActive = false
+local flingConn     = nil
+local flingActive   = false
+
+local function startAntiDie()
+    if antiDieConn then return end
+    antiDieActive = true
+    config.AntiDieEnabled = true
+    
+    antiDieConn = RunService.Heartbeat:Connect(function()
+        if not antiDieActive then return end
+        local char = localPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health < hum.MaxHealth then
+            hum.Health = hum.MaxHealth
+        end
+    end)
+    
+    if not flingConn then
+        flingActive = true
+        flingConn = RunService.Heartbeat:Connect(function()
+            if not flingActive then return end
+            local char = localPlayer.Character
+            if not char then return end
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if not root then return end
+            local v = root.AssemblyLinearVelocity
+            if v.Magnitude > 120 then
+                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end
+        end)
+    end
+    
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("ResetButtonCallback", false)
+    end)
+end
+
+local function stopAntiDie()
+    antiDieActive = false
+    config.AntiDieEnabled = false
+    if antiDieConn then
+        antiDieConn:Disconnect()
+        antiDieConn = nil
+    end
+    if flingConn then
+        flingConn:Disconnect()
+        flingConn = nil
+    end
+    flingActive = false
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("ResetButtonCallback", true)
+    end)
+end
+
+-- ─── Theme ───────────────────────────────────────────────────────────────────
+local themeClassic = {
+    bg        = Color3.fromRGB(10, 15, 25), -- Negro/azul muy oscuro
+    dark      = Color3.fromRGB(18, 25, 40), -- Gris azulado oscuro
+    panel     = Color3.fromRGB(25, 35, 55),
+    accent    = Color3.fromRGB(60, 160, 255), -- Azul acento
+    accentCyan = Color3.fromRGB(80, 220, 255), -- Cyan acento
+    red       = Color3.fromRGB(220, 60, 60),
+    green     = Color3.fromRGB(60, 220, 100),
+    blue      = Color3.fromRGB(60, 160, 255),
+    cyan      = Color3.fromRGB(80, 220, 255),
+    white     = Color3.fromRGB(255, 255, 255),
+    muted     = Color3.fromRGB(120, 140, 170), -- Gris azulado
+    toggleOff = Color3.fromRGB(35, 45, 65),
+    soft      = Color3.fromRGB(30, 45, 75),
+    toastOk   = Color3.fromRGB(60, 220, 100),
+    toastBad  = Color3.fromRGB(220, 70, 70),
+    titlePrefix = "",
+    bgGradient = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 40, 70)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(10, 20, 40)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 10, 25))
+    }),
+    glowColor = Color3.fromRGB(80, 180, 255),
+}
+local themeHalloween = {
+    bg        = Color3.fromRGB(15, 8, 5), -- Negro/rojo oscuro
+    dark      = Color3.fromRGB(30, 12, 8),
+    panel     = Color3.fromRGB(45, 20, 12),
+    accent    = Color3.fromRGB(255, 120, 30), -- Naranja
+    accentCyan = Color3.fromRGB(255, 160, 60),
+    red       = Color3.fromRGB(200, 40, 20),
+    green     = Color3.fromRGB(255, 140, 40),
+    blue      = Color3.fromRGB(40, 180, 255),
+    cyan      = Color3.fromRGB(80, 220, 255),
+    white     = Color3.fromRGB(255, 240, 220), -- Blanco cálido
+    muted     = Color3.fromRGB(180, 140, 100), -- Naranja apagado
+    toggleOff = Color3.fromRGB(50, 20, 12),
+    soft      = Color3.fromRGB(60, 25, 15),
+    toastOk   = Color3.fromRGB(255, 150, 40),
+    toastBad  = Color3.fromRGB(180, 40, 20),
+    titlePrefix = "🎃 ",
+    bgGradient = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 30, 10)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(50, 15, 5)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 8, 2))
+    }),
+    glowColor = Color3.fromRGB(255, 120, 30),
+}
+local theme = themeClassic
+local function applyThemeTable()
+    if config and config.Theme == "Halloween" then
+        theme = themeHalloween
+    else
+        theme = themeClassic
+    end
+end
+
+-- ─── Toast notifications ──────────────────────────────────────────────────────
+local toastGui = Instance.new("ScreenGui")
+toastGui.Name = "Syn1zeAntiBatToasts"
+toastGui.ResetOnSpawn = false
+toastGui.DisplayOrder = 50
+toastGui.IgnoreGuiInset = true
+pcall(function() if syn and syn.protect_gui then syn.protect_gui(toastGui) end end)
+toastGui.Parent = CoreGui
+
+local toastHolder = Instance.new("Frame")
+toastHolder.AnchorPoint = Vector2.new(1, 0)
+toastHolder.Position = UDim2.new(1, -14, 0, 52)
+toastHolder.Size = UDim2.new(0, 260, 0, 220)
+toastHolder.BackgroundTransparency = 1
+toastHolder.Parent = toastGui
+
+local toastLayout = Instance.new("UIListLayout", toastHolder)
+toastLayout.FillDirection = Enum.FillDirection.Vertical
+toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+toastLayout.Padding = UDim.new(0, 6)
+toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function showToast(text, ok)
+    local isH = config.Theme == "Halloween"
+    local prefix = isH and (ok and "🎃 " or "💀 ") or ""
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(0, 0, 0, 28)
+    card.BackgroundColor3 = isH and Color3.fromRGB(28, 12, 6) or Color3.fromRGB(12, 12, 18)
+    card.BackgroundTransparency = 0.12
+    card.BorderSizePixel = 0
+    card.ClipsDescendants = true
+    card.Parent = toastHolder
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+    local st = Instance.new("UIStroke", card)
+    st.Color = ok and (theme.toastOk or theme.green) or (theme.toastBad or theme.red)
+    st.Thickness = 1.2
+    st.Transparency = 0.25
+
+    local dot = Instance.new("Frame")
+    dot.AnchorPoint = Vector2.new(1, 0.5)
+    dot.Position = UDim2.new(1, -10, 0.5, 0)
+    dot.Size = UDim2.fromOffset(8, 8)
+    dot.BackgroundColor3 = ok and (theme.toastOk or theme.green) or (theme.toastBad or theme.red)
+    dot.BorderSizePixel = 0
+    dot.Parent = card
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.Size = UDim2.new(1, -28, 1, 0)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 12
+    lbl.TextColor3 = isH and Color3.fromRGB(255, 230, 200) or Color3.fromRGB(240, 240, 245)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Text = prefix .. text
+    lbl.Parent = card
+
+    local tw = math.clamp(12 + #text * 7, 140, 300)
+    card.Size = UDim2.new(0, tw, 0, 28)
+
+    task.delay(2.2, function()
+        if not card.Parent then return end
+        TweenService:Create(card, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(lbl, TweenInfo.new(0.25), { TextTransparency = 1 }):Play()
+        TweenService:Create(st, TweenInfo.new(0.25), { Transparency = 1 }):Play()
+        TweenService:Create(dot, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+        task.wait(0.28)
+        card:Destroy()
+    end)
+end
+
+local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+local BASE_W   = isMobile and 210 or 250
+local BASE_H   = isMobile and 260 or 275
+
+-- Ancho extra para todas las escalas excepto 150%
+local function getWidthMultiplier()
+    if math.abs(config.MenuScale - 1.50) < 0.01 then return 1.0 end
+    return 1.25
+end
+
+local function scaledW()
+    return math.floor(BASE_W * config.MenuScale * getWidthMultiplier() + 0.5)
+end
+local function scaledH()
+    return math.floor(BASE_H * config.MenuScale + 0.5)
+end
+local function ts(base)
+    return math.max(9, math.floor(base * config.MenuScale + 0.5))
+end
+local function osz(base)
+    return math.max(18, math.floor(base * config.MenuScale + 0.5))
+end
+
+for _, name in ipairs({ "Clean Anti Bat", "Space Anti Bat", "Space X Hook Anti Bat", "Syn1ze Anti Bat" }) do
+    local old = CoreGui:FindFirstChild(name)
+    if old then old:Destroy() end
+end
+
+local function getBgIds()
+    if config.Theme == "Halloween" then
+        return BACKGROUND_IDS_HALLOWEEN
+    end
+    return BACKGROUND_IDS_CLASSIC
+end
+
+loadConfig()
+
+applyThemeTable()
+BACKGROUND_IDS = getBgIds()
+do
+    local okId = false
+    for _, id in ipairs(BACKGROUND_IDS) do
+        if tostring(id) == tostring(config.BackgroundId) then okId = true break end
+    end
+    if not okId then config.BackgroundId = BACKGROUND_IDS[1] end
+end
+
+-- ─── GUI root ────────────────────────────────────────────────────────────────
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name           = "Syn1ze Anti Bat"
+screenGui.ResetOnSpawn   = false
+screenGui.DisplayOrder   = 10
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function()
+    if syn and syn.protect_gui then syn.protect_gui(screenGui) end
+end)
+screenGui.Parent = CoreGui
+
+local frame = Instance.new("Frame")
+frame.Name             = "Main"
+frame.Size             = UDim2.fromOffset(0, 0)
+frame.Position         = UDim2.new(0.5, -scaledW() / 2, 0.5, -scaledH() / 2)
+frame.BackgroundColor3 = theme.bg
+frame.BackgroundTransparency = 0.2
+frame.BorderSizePixel  = 0
+frame.Active           = true
+frame.ClipsDescendants = true
+frame.Parent           = screenGui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 18)
+
+-- Fondo degradado
+local bgGradientFrame = Instance.new("Frame")
+bgGradientFrame.Name = "BgGradient"
+bgGradientFrame.Size = UDim2.new(1, 0, 1, 0)
+bgGradientFrame.BackgroundColor3 = theme.bg
+bgGradientFrame.BackgroundTransparency = 0.2
+bgGradientFrame.BorderSizePixel = 0
+bgGradientFrame.ZIndex = 0
+bgGradientFrame.Parent = frame
+Instance.new("UICorner", bgGradientFrame).CornerRadius = UDim.new(0, 18)
+
+local bgGradient = Instance.new("UIGradient")
+bgGradient.Color = theme.bgGradient
+bgGradient.Rotation = 135
+bgGradient.Parent = bgGradientFrame
+
+local background = Instance.new("ImageLabel")
+background.Name                   = "Background"
+background.Size                   = UDim2.new(1, 0, 1, 0)
+background.Image                  = "rbxassetid://" .. config.BackgroundId
+background.ScaleType              = Enum.ScaleType.Crop
+background.BackgroundTransparency = 1
+background.ImageTransparency      = 0.85 -- Imagen muy discreta
+background.ZIndex                 = 1
+background.Parent                 = frame
+Instance.new("UICorner", background).CornerRadius = UDim.new(0, 18)
+
+-- Capa oscura para legibilidad
+local dim = Instance.new("Frame")
+dim.Size                   = UDim2.new(1, 0, 1, 0)
+dim.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+dim.BackgroundTransparency = 0.6
+dim.BorderSizePixel        = 0
+dim.ZIndex                 = 2
+dim.Parent                 = frame
+Instance.new("UICorner", dim).CornerRadius = UDim.new(0, 18)
+
+local dragCatch = Instance.new("TextButton")
+dragCatch.Name = "DragCatch"
+dragCatch.Size = UDim2.new(1, 0, 1, 0)
+dragCatch.BackgroundTransparency = 1
+dragCatch.Text = ""
+dragCatch.ZIndex = 3
+dragCatch.AutoButtonColor = false
+dragCatch.Parent = frame
+
+-- ─── Halloween floating emojis ───────────────────────────────────────────────
+local halloweenLayer = Instance.new("Frame")
+halloweenLayer.Name = "HalloweenFX"
+halloweenLayer.Size = UDim2.new(1, 0, 1, 0)
+halloweenLayer.BackgroundTransparency = 1
+halloweenLayer.ClipsDescendants = true
+halloweenLayer.ZIndex = 4
+halloweenLayer.Visible = false
+halloweenLayer.Parent = frame
+
+local HW_EMOJIS = {"🎃", "👻", "🦇", "🕷", "💀", "🕸", "🍬", "🧡", "🌙", "✨", "🧛", "🧟"}
+local hwParticles = {}
+local hwConn = nil
+
+local function clearHalloweenFX()
+    if hwConn then
+        hwConn:Disconnect()
+        hwConn = nil
+    end
+    for _, p in ipairs(hwParticles) do
+        if p and p.Parent then p:Destroy() end
+    end
+    for i = #hwParticles, 1, -1 do hwParticles[i] = nil end
+    halloweenLayer.Visible = false
+end
+
+local function spawnHalloweenFX()
+    clearHalloweenFX()
+    halloweenLayer.Visible = true
+    local count = 14
+    for i = 1, count do
+        local lbl = Instance.new("TextLabel")
+        lbl.BackgroundTransparency = 1
+        lbl.Size = UDim2.fromOffset(18, 18)
+        lbl.Text = HW_EMOJIS[((i - 1) % #HW_EMOJIS) + 1]
+        lbl.TextSize = ({14, 16, 18, 12, 20})[((i - 1) % 5) + 1]
+        lbl.ZIndex = 4
+        lbl.Rotation = math.random(-20, 20)
+        lbl.TextTransparency = 0.15 + (i % 4) * 0.08
+        lbl.Parent = halloweenLayer
+        local data = {
+            gui = lbl,
+            x = math.random() * 0.9 + 0.05,
+            y = math.random() * 0.9 + 0.05,
+            sp = 0.08 + math.random() * 0.18,
+            amp = 0.02 + math.random() * 0.04,
+            phase = math.random() * math.pi * 2,
+            rotSp = (math.random() - 0.5) * 40,
+            bob = 0.6 + math.random() * 1.2,
+        }
+        lbl.Position = UDim2.new(data.x, 0, data.y, 0)
+        table.insert(hwParticles, data)
+    end
+    local t0 = os.clock()
+    hwConn = RunService.RenderStepped:Connect(function()
+        if not halloweenLayer.Visible then return end
+        local t = os.clock() - t0
+        for _, d in ipairs(hwParticles) do
+            if d.gui and d.gui.Parent then
+                local ny = d.y + math.sin(t * d.bob + d.phase) * d.amp
+                local nx = d.x + math.cos(t * d.sp * 0.7 + d.phase) * (d.amp * 0.6)
+                d.y = d.y - d.sp * 0.0035
+                if d.y < -0.05 then
+                    d.y = 1.05
+                    d.x = math.random() * 0.9 + 0.05
+                    d.gui.Text = HW_EMOJIS[math.random(1, #HW_EMOJIS)]
+                end
+                d.gui.Position = UDim2.new(math.clamp(nx, 0, 0.95), 0, math.clamp(ny, -0.05, 1.05), 0)
+                d.gui.Rotation = d.gui.Rotation + d.rotSp * 0.016
+            end
+        end
+    end)
+end
+
+-- ─── HEADER REDISEÑADO ─────────────────────────────────────────────────────
+local header = Instance.new("Frame")
+header.Name                   = "Header"
+header.BackgroundTransparency = 1
+header.Size                   = UDim2.new(1, 0, 0, osz(60))
+header.Active                 = true
+header.ZIndex                 = 5
+header.Parent                 = frame
+
+-- Logo S/H más pequeño (38x38)
+local logoFrame = Instance.new("Frame")
+logoFrame.Name = "Logo"
+logoFrame.Position = UDim2.new(0, 12, 0.5, -osz(19))
+logoFrame.Size = UDim2.fromOffset(osz(38), osz(38))
+logoFrame.BackgroundColor3 = Color3.fromRGB(30, 60, 120)
+logoFrame.BorderSizePixel = 0
+logoFrame.ZIndex = 6
+logoFrame.Parent = header
+Instance.new("UICorner", logoFrame).CornerRadius = UDim.new(0, 10)
+
+local logoGradient = Instance.new("UIGradient")
+logoGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 220, 255)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(40, 160, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 80, 180))
+})
+logoGradient.Rotation = 45
+logoGradient.Parent = logoFrame
+
+local logoGlow = Instance.new("Frame")
+logoGlow.Size = UDim2.new(1, 0, 1, 0)
+logoGlow.BackgroundColor3 = Color3.fromRGB(150, 240, 255)
+logoGlow.BackgroundTransparency = 0.75
+logoGlow.BorderSizePixel = 0
+logoGlow.ZIndex = 6
+logoGlow.Parent = logoFrame
+Instance.new("UICorner", logoGlow).CornerRadius = UDim.new(0, 10)
+
+local logoText = Instance.new("TextLabel")
+logoText.Size = UDim2.new(1, 0, 1, 0)
+logoText.BackgroundTransparency = 1
+logoText.Text = "S/H"
+logoText.TextColor3 = Color3.fromRGB(255, 255, 255)
+logoText.TextSize = osz(14)
+logoText.Font = Enum.Font.GothamBold
+logoText.ZIndex = 7
+logoText.Parent = logoFrame
+
+local logoStroke = Instance.new("UIStroke", logoFrame)
+logoStroke.Color = Color3.fromRGB(120, 220, 255)
+logoStroke.Thickness = 1
+logoStroke.Transparency = 0.2
+
+-- Título y subtítulo
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Position               = UDim2.new(0, 60, 0, 10)
+title.Size                   = UDim2.new(1, -80, 0, ts(18))
+title.Font                   = Enum.Font.GothamBold
+title.Text                   = "Syn1ze"
+title.TextColor3             = theme.white
+title.TextSize               = ts(isMobile and 15 or 17)
+title.TextXAlignment         = Enum.TextXAlignment.Left
+title.ZIndex                 = 5
+title.Parent                 = header
+
+local subtitle = Instance.new("TextLabel")
+subtitle.BackgroundTransparency = 1
+subtitle.Position               = UDim2.new(0, 60, 0, ts(28))
+subtitle.Size                   = UDim2.new(1, -80, 0, ts(14))
+subtitle.Font                   = Enum.Font.Gotham
+subtitle.Text                   = "ANTI BAT"
+subtitle.TextColor3             = theme.muted
+subtitle.TextSize               = ts(isMobile and 9 or 10)
+subtitle.TextXAlignment         = Enum.TextXAlignment.Left
+subtitle.ZIndex                 = 5
+subtitle.Parent                 = header
+
+-- ─── CONTENIDO SCROLLEABLE ─────────────────────────────────────────────────
+local contentScroll = Instance.new("ScrollingFrame")
+contentScroll.Name                   = "ContentScroll"
+contentScroll.BackgroundTransparency = 1
+contentScroll.Position               = UDim2.new(0, 12, 0, osz(60))
+contentScroll.Size                   = UDim2.new(1, -24, 1, -osz(60) - osz(44))
+contentScroll.BorderSizePixel        = 0
+contentScroll.ScrollBarThickness     = 3
+contentScroll.ScrollBarImageColor3   = theme.accentCyan
+contentScroll.CanvasSize             = UDim2.new(0, 0, 0, 400)
+contentScroll.ZIndex                 = 5
+contentScroll.Parent                 = frame
+Instance.new("UICorner", contentScroll).CornerRadius = UDim.new(0, 12)
+
+local content = Instance.new("Frame")
+content.Name                   = "Content"
+content.BackgroundTransparency = 1
+content.Size                   = UDim2.new(1, 0, 0, 400)
+content.ZIndex                 = 5
+content.Parent                 = contentScroll
+
+-- ─── STATUS COMPACTO ───────────────────────────────────────────────────────
+local statusRow = Instance.new("Frame")
+statusRow.Position               = UDim2.new(0, 0, 0, 6)
+statusRow.Size                   = UDim2.new(1, 0, 0, osz(26))
+statusRow.BackgroundTransparency = 1
+statusRow.ZIndex                 = 6
+statusRow.Parent                 = content
+
+local statusDot = Instance.new("Frame")
+statusDot.Position         = UDim2.new(0, 4, 0.5, -3)
+statusDot.Size             = UDim2.fromOffset(6, 6)
+statusDot.BackgroundColor3 = theme.red
+statusDot.BorderSizePixel  = 0
+statusDot.ZIndex           = 7
+statusDot.Parent           = statusRow
+Instance.new("UICorner", statusDot).CornerRadius = UDim.new(1, 0)
+
+local statusText = Instance.new("TextLabel")
+statusText.Position               = UDim2.new(0, 16, 0, 0)
+statusText.Size                   = UDim2.new(1, -16, 1, 0)
+statusText.BackgroundTransparency = 1
+statusText.Text                   = "SYSTEM INACTIVE"
+statusText.TextColor3             = theme.red
+statusText.TextSize               = ts(isMobile and 10 or 11)
+statusText.Font                   = Enum.Font.GothamBold
+statusText.TextXAlignment         = Enum.TextXAlignment.Left
+statusText.ZIndex                 = 7
+statusText.Parent                 = statusRow
+
+local function refreshStatus()
+    local active = antiBatActive or infJumpActive or antiDieActive
+    if active then
+        statusText.Text = "SYSTEM ACTIVE"
+        statusText.TextColor3 = theme.green
+        statusDot.BackgroundColor3 = theme.green
+    else
+        statusText.Text = "SYSTEM INACTIVE"
+        statusText.TextColor3 = theme.red
+        statusDot.BackgroundColor3 = theme.red
+    end
+end
+
+-- ─── TARJETAS MODERNAS ─────────────────────────────────────────────────────
+local function makeCard(parent, y, label, subtitleText, initialState, onToggle)
+    local cardH = osz(isMobile and 52 or 58)
+    local card = Instance.new("Frame")
+    card.Position               = UDim2.new(0, 0, 0, y)
+    card.Size                   = UDim2.new(1, 0, 0, cardH)
+    card.BackgroundColor3       = theme.dark
+    card.BackgroundTransparency = 0.5
+    card.ZIndex                 = 6
+    card.Parent                 = parent
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 12)
+
+    local stroke = Instance.new("UIStroke", card)
+    stroke.Color = theme.soft
+    stroke.Thickness = 1
+    stroke.Transparency = 0.5
+
+    -- Barra lateral cyan
+    local accentBar = Instance.new("Frame")
+    accentBar.Position = UDim2.new(0, 0, 0.5, -osz(14))
+    accentBar.Size = UDim2.fromOffset(3, osz(28))
+    accentBar.BackgroundColor3 = theme.accentCyan
+    accentBar.BorderSizePixel = 0
+    accentBar.ZIndex = 7
+    accentBar.Parent = card
+    Instance.new("UICorner", accentBar).CornerRadius = UDim.new(0, 2)
+
+    -- Nombre
+    local text = Instance.new("TextLabel")
+    text.Position               = UDim2.new(0, 12, 0, 8)
+    text.Size                   = UDim2.new(1, -80, 0, ts(15))
+    text.BackgroundTransparency = 1
+    text.Text                   = label
+    text.TextColor3             = theme.white
+    text.TextSize               = ts(isMobile and 13 or 15)
+    text.Font                   = Enum.Font.GothamBold
+    text.TextXAlignment         = Enum.TextXAlignment.Left
+    text.ZIndex                 = 7
+    text.Parent                 = card
+
+    -- Descripción
+    local sub = Instance.new("TextLabel")
+    sub.Position               = UDim2.new(0, 12, 0, ts(25))
+    sub.Size                   = UDim2.new(1, -80, 0, ts(13))
+    sub.BackgroundTransparency = 1
+    sub.Text                   = subtitleText or ""
+    sub.TextColor3             = theme.muted
+    sub.TextSize               = ts(isMobile and 9 or 10)
+    sub.Font                   = Enum.Font.Gotham
+    sub.TextXAlignment         = Enum.TextXAlignment.Left
+    sub.ZIndex                 = 7
+    sub.Parent                 = card
+
+    -- Toggle
+    local trackH = osz(26)
+    local knobS  = osz(20)
+    local track = Instance.new("Frame")
+    track.AnchorPoint         = Vector2.new(1, 0.5)
+    track.Position            = UDim2.new(1, -12, 0.5, 0)
+    track.Size                = UDim2.fromOffset(osz(50), trackH)
+    track.BackgroundColor3    = initialState and theme.accentCyan or theme.toggleOff
+    track.BorderSizePixel     = 0
+    track.ZIndex              = 7
+    track.Parent              = card
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame")
+    knob.AnchorPoint      = Vector2.new(0, 0.5)
+    knob.Position         = initialState and UDim2.new(1, -(knobS + 3), 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
+    knob.Size             = UDim2.fromOffset(knobS, knobS)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel  = 0
+    knob.ZIndex           = 8
+    knob.Parent           = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local state = initialState
+    local function setVisual(on)
+        state = on
+        TweenService:Create(track, TweenInfo.new(0.2), {
+            BackgroundColor3 = on and theme.accentCyan or theme.toggleOff
+        }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.2), {
+            Position = on and UDim2.new(1, -(knobS + 3), 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
+        }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.2), {
+            Color = on and theme.accentCyan or theme.soft,
+            Transparency = on and 0.2 or 0.5
+        }):Play()
+        TweenService:Create(card, TweenInfo.new(0.2), {
+            BackgroundTransparency = on and 0.35 or 0.5
+        }):Play()
+    end
+
+    -- Animación al pasar mouse/tocar
+    local btn = Instance.new("TextButton")
+    btn.Size                   = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text                   = ""
+    btn.ZIndex                 = 9
+    btn.Parent                 = card
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(card, TweenInfo.new(0.15), { BackgroundTransparency = state and 0.25 or 0.4 }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(card, TweenInfo.new(0.15), { BackgroundTransparency = state and 0.35 or 0.5 }):Play()
+    end)
+    btn.MouseButton1Click:Connect(function()
+        setVisual(not state)
+        onToggle(state)
+    end)
+
+    return setVisual, cardH
+end
+
+local rowY = osz(isMobile and 36 or 40)
+local setAntiVisual, h1 = makeCard(content, rowY, "Anti Bat", "Protección contra bats", config.AntiBatEnabled, function(on)
+    config.AntiBatEnabled = on
+    if on then startAntiBat() else stopAntiBat() end
+    refreshStatus()
+    saveConfig()
+    showToast(on and ("Anti bat active · " .. (ANTI_MODE_NAMES[config.AntiBatMode] or "V1")) or "Anti bat off", on)
+end)
+rowY = rowY + h1 + 8
+
+local setInfVisual, h2 = makeCard(content, rowY, "Inf Jump", "Salto sin límites", config.InfJumpEnabled, function(on)
+    if on then startInfJump() else stopInfJump() end
+    refreshStatus()
+    saveConfig()
+    showToast(on and "Inf jump active" or "Inf jump off", on)
+end)
+rowY = rowY + h2 + 8
+
+local setAntiDieVisual, h3 = makeCard(content, rowY, "Anti Die", "Anti Die + Anti Fling", config.AntiDieEnabled, function(on)
+    if on then startAntiDie() else stopAntiDie() end
+    refreshStatus()
+    saveConfig()
+    showToast(on and "Anti Die activado (Anti Fling incluido)" or "Anti Die desactivado", on)
+end)
+rowY = rowY + h3 + 12
+
+-- Hint text
+local hint = Instance.new("TextLabel")
+hint.Position               = UDim2.new(0, 2, 0, rowY + 4)
+hint.Size                   = UDim2.new(1, 0, 0, osz(36))
+hint.BackgroundTransparency = 1
+hint.Text                   = "Reinicia 5 veces con Inf Jump y Anti Bat activos para que funcione correctamente."
+hint.TextColor3             = theme.muted
+hint.TextSize               = ts(8)
+hint.Font                   = Enum.Font.Gotham
+hint.TextWrapped            = true
+hint.TextXAlignment         = Enum.TextXAlignment.Left
+hint.TextYAlignment         = Enum.TextYAlignment.Top
+hint.ZIndex                 = 7
+hint.Parent                 = content
+
+contentScroll.CanvasSize = UDim2.new(0, 0, 0, rowY + osz(50))
+
+-- ─── BARRA INFERIOR LIMPIA ─────────────────────────────────────────────────
+local bottomBar = Instance.new("Frame")
+bottomBar.Name = "BottomBar"
+bottomBar.AnchorPoint = Vector2.new(0, 1)
+bottomBar.Position = UDim2.new(0, 0, 1, 0)
+bottomBar.Size = UDim2.new(1, 0, 0, osz(44))
+bottomBar.BackgroundColor3 = theme.dark
+bottomBar.BackgroundTransparency = 0.9
+bottomBar.BorderSizePixel = 0
+bottomBar.ZIndex = 10
+bottomBar.Parent = frame
+
+local bottomLine = Instance.new("Frame")
+bottomLine.Size = UDim2.new(1, 0, 0, 1)
+bottomLine.Position = UDim2.new(0, 0, 0, 0)
+bottomLine.BackgroundColor3 = theme.soft
+bottomLine.BackgroundTransparency = 0.7
+bottomLine.BorderSizePixel = 0
+bottomLine.ZIndex = 11
+bottomLine.Parent = bottomBar
+
+-- Botón minimizar a la izquierda
+local collapseButton = Instance.new("TextButton")
+collapseButton.Name = "Minimize"
+collapseButton.Position = UDim2.new(0, 12, 0.5, -osz(11))
+collapseButton.Size = UDim2.fromOffset(osz(22), osz(22))
+collapseButton.BackgroundColor3 = theme.soft
+collapseButton.BackgroundTransparency = 0.6
+collapseButton.Text = "-"
+collapseButton.TextColor3 = theme.white
+collapseButton.TextSize = ts(16)
+collapseButton.Font = Enum.Font.GothamBold
+collapseButton.ZIndex = 12
+collapseButton.Parent = bottomBar
+Instance.new("UICorner", collapseButton).CornerRadius = UDim.new(0, 6)
+
+-- Botón Lock a la derecha
+local lockBtn = Instance.new("TextButton")
+lockBtn.Name = "Lock"
+lockBtn.AnchorPoint = Vector2.new(1, 0.5)
+lockBtn.Position = UDim2.new(1, -12, 0.5, 0)
+lockBtn.Size = UDim2.fromOffset(osz(22), osz(22))
+lockBtn.BackgroundColor3 = theme.soft
+lockBtn.BackgroundTransparency = 0.6
+lockBtn.Text = config.Locked and "🔒" or "🔓"
+lockBtn.TextColor3 = theme.white
+lockBtn.TextSize = ts(12)
+lockBtn.Font = Enum.Font.GothamBold
+lockBtn.ZIndex = 12
+lockBtn.Parent = bottomBar
+Instance.new("UICorner", lockBtn).CornerRadius = UDim.new(0, 6)
+
+-- Botón Settings a la derecha (al lado del lock)
+local settingsBtn = Instance.new("TextButton")
+settingsBtn.Name = "Settings"
+settingsBtn.AnchorPoint = Vector2.new(1, 0.5)
+settingsBtn.Position = UDim2.new(1, -12 - osz(28), 0.5, 0)
+settingsBtn.Size = UDim2.fromOffset(osz(22), osz(22))
+settingsBtn.BackgroundColor3 = theme.soft
+settingsBtn.BackgroundTransparency = 0.6
+settingsBtn.Text = "⚙"
+settingsBtn.TextColor3 = theme.white
+settingsBtn.TextSize = ts(12)
+settingsBtn.Font = Enum.Font.GothamBold
+settingsBtn.ZIndex = 12
+settingsBtn.Parent = bottomBar
+Instance.new("UICorner", settingsBtn).CornerRadius = UDim.new(0, 6)
+
+-- Animaciones de botones
+for _, btn in ipairs({ collapseButton, lockBtn, settingsBtn }) do
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.4 }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.6 }):Play()
+    end)
+end
+
+-- Lógica de botones
+local collapsed = false
+collapseButton.MouseButton1Click:Connect(function()
+    collapsed = not collapsed
+    if collapsed then
+        TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+            { Size = UDim2.fromOffset(scaledW(), osz(44)) }):Play()
+        contentScroll.Visible = false
+        bottomBar.Visible = false
+        collapseButton.Text = "+"
+    else
+        TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+            { Size = UDim2.fromOffset(scaledW(), scaledH()) }):Play()
+        contentScroll.Visible = true
+        bottomBar.Visible = true
+        collapseButton.Text = "-"
+    end
+end)
+
+lockBtn.MouseButton1Click:Connect(function()
+    config.Locked = not config.Locked
+    lockBtn.Text = config.Locked and "🔒" or "🔓"
+    saveConfig()
+end)
+
+-- ─── SETTINGS OVERLAY ──────────────────────────────────────────────────────
+local settingsOpen = false
+local settingsPanel = Instance.new("Frame")
+settingsPanel.Name                   = "SettingsPanel"
+settingsPanel.Size                   = UDim2.new(1, 0, 1, 0)
+settingsPanel.BackgroundColor3       = theme.bg
+settingsPanel.BackgroundTransparency = 0.2
+settingsPanel.Visible                = false
+settingsPanel.ZIndex                 = 30
+settingsPanel.Parent                 = frame
+Instance.new("UICorner", settingsPanel).CornerRadius = UDim.new(0, 18)
+
+local settingsGradient = Instance.new("UIGradient")
+settingsGradient.Color = theme.bgGradient
+settingsGradient.Rotation = 45
+settingsGradient.Parent = settingsPanel
+
+local settingsScroll = Instance.new("ScrollingFrame")
+settingsScroll.Size                   = UDim2.new(1, -16, 1, -48)
+settingsScroll.Position               = UDim2.new(0, 8, 0, 40)
+settingsScroll.BackgroundTransparency = 1
+settingsScroll.BorderSizePixel        = 0
+settingsScroll.ScrollBarThickness     = 3
+settingsScroll.ScrollBarImageColor3   = theme.accentCyan
+
+-- ─── SECCIÓN GENERAL ───────────────────────────────────────────────────────
+local genSection = Instance.new("TextLabel")
+genSection.Position               = UDim2.new(0, 4, 0, 4)
+genSection.Size                   = UDim2.new(1, 0, 0, 14)
+genSection.BackgroundTransparency = 1
+genSection.Text                   = "GENERAL"
+genSection.TextColor3             = theme.muted
+genSection.TextSize               = ts(9)
+genSection.Font                   = Enum.Font.GothamBold
+genSection.TextXAlignment         = Enum.TextXAlignment.Left
+genSection.ZIndex                 = 32
+genSection.Parent                 = settingsScroll
+
+local kbCard = Instance.new("Frame")
+kbCard.Size                   = UDim2.new(1, -8, 0, osz(48))
+kbCard.Position               = UDim2.new(0, 4, 0, 22)
+kbCard.BackgroundColor3       = theme.soft
+kbCard.BackgroundTransparency = 0.4
+kbCard.ZIndex                 = 32
+kbCard.Parent                 = settingsScroll
+Instance.new("UICorner", kbCard).CornerRadius = UDim.new(0, 10)
+
+local kbCardTitle = Instance.new("TextLabel")
+kbCardTitle.Size                   = UDim2.new(1, -110, 0, 16)
+kbCardTitle.Position               = UDim2.new(0, 12, 0, 6)
+kbCardTitle.BackgroundTransparency = 1
+kbCardTitle.Text                   = "Keybind"
+kbCardTitle.TextColor3             = theme.white
+kbCardTitle.Font                   = Enum.Font.GothamBold
+kbCardTitle.TextSize               = ts(12)
+kbCardTitle.TextXAlignment         = Enum.TextXAlignment.Left
+kbCardTitle.ZIndex                 = 33
+kbCardTitle.Parent                 = kbCard
+
+local kbCardSub = Instance.new("TextLabel")
+kbCardSub.Size                   = UDim2.new(1, -100, 0, 14)
+kbCardSub.Position               = UDim2.new(0, 12, 0, 24)
+kbCardSub.BackgroundTransparency = 1
+kbCardSub.Text                   = "Toggle Anti Bat"
+kbCardSub.TextColor3             = theme.muted
+kbCardSub.Font                   = Enum.Font.Gotham
+kbCardSub.TextSize               = ts(9)
+kbCardSub.TextXAlignment         = Enum.TextXAlignment.Left
+kbCardSub.ZIndex                 = 33
+kbCardSub.Parent                 = kbCard
+
+local kbBindBtn = Instance.new("TextButton")
+kbBindBtn.AnchorPoint            = Vector2.new(1, 0.5)
+kbBindBtn.Position               = UDim2.new(1, -10, 0.5, 0)
+kbBindBtn.Size                   = UDim2.fromOffset(osz(40), osz(28))
+kbBindBtn.BackgroundColor3       = Color3.fromRGB(30, 40, 70)
+kbBindBtn.Text                   = config.Keybind
+kbBindBtn.TextColor3             = theme.white
+kbBindBtn.TextSize               = ts(12)
+kbBindBtn.Font                   = Enum.Font.GothamBold
+kbBindBtn.ZIndex                 = 34
+kbBindBtn.Parent                 = kbCard
+Instance.new("UICorner", kbBindBtn).CornerRadius = UDim.new(0, 6)
+
+-- ─── SECCIÓN MENU ──────────────────────────────────────────────────────────
+local menuSection = Instance.new("TextLabel")
+menuSection.Position               = UDim2.new(0, 4, 0, 78)
+menuSection.Size                   = UDim2.new(1, 0, 0, 14)
+menuSection.BackgroundTransparency = 1
+menuSection.Text                   = "MENU"
+menuSection.TextColor3             = theme.muted
+menuSection.TextSize               = ts(9)
+menuSection.Font                   = Enum.Font.GothamBold
+menuSection.TextXAlignment         = Enum.TextXAlignment.Left
+menuSection.ZIndex                 = 32
+menuSection.Parent                 = settingsScroll
+
+local sizeRow = Instance.new("Frame")
+sizeRow.Size                   = UDim2.new(1, -8, 0, 32)
+sizeRow.Position               = UDim2.new(0, 4, 0, 96)
+sizeRow.BackgroundTransparency = 1
+sizeRow.ZIndex                 = 32
+sizeRow.Parent                 = settingsScroll
+
+local sizeButtons = {}
+local function applyScale(scale)
+    config.MenuScale = scale
+    saveConfig()
+    showToast(string.format("Menu size: %d%%", math.floor(scale * 100 + 0.5)), true)
+    local w, h = scaledW(), scaledH()
+    if collapsed then
+        frame.Size = UDim2.fromOffset(w, osz(44))
+    else
+        frame.Size = UDim2.fromOffset(w, h)
+    end
+    header.Size = UDim2.new(1, 0, 0, osz(60))
+    title.TextSize = ts(isMobile and 15 or 17)
+    subtitle.TextSize = ts(isMobile and 9 or 10)
+    contentScroll.Position = UDim2.new(0, 12, 0, osz(60))
+    contentScroll.Size = UDim2.new(1, -24, 1, -osz(60) - osz(44))
+    for i, btn in ipairs(sizeButtons) do
+        local on = math.abs(SIZE_PRESETS[i] - scale) < 0.01
+        btn.BackgroundColor3 = on and Color3.fromRGB(30, 90, 50) or theme.soft
+        btn.TextColor3 = on and theme.white or theme.muted
+    end
+end
+
+for i, label in ipairs(SIZE_LABELS) do
+    local b = Instance.new("TextButton")
+    b.Size                   = UDim2.new(0.23, 0, 1, 0)
+    b.Position               = UDim2.new((i - 1) * 0.25, 2, 0, 0)
+    b.BackgroundColor3       = math.abs(SIZE_PRESETS[i] - config.MenuScale) < 0.01 and Color3.fromRGB(30, 90, 50) or theme.soft
+    b.Text                   = label
+    b.TextColor3             = math.abs(SIZE_PRESETS[i] - config.MenuScale) < 0.01 and theme.white or theme.muted
+    b.TextSize               = 10
+    b.Font                   = Enum.Font.GothamBold
+    b.ZIndex                 = 33
+    b.Parent                 = sizeRow
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    b.MouseButton1Click:Connect(function()
+        applyScale(SIZE_PRESETS[i])
+    end)
+    sizeButtons[i] = b
+end
+
+-- ─── SECCIÓN BACKGROUND ────────────────────────────────────────────────────
+local bgSection = Instance.new("TextLabel")
+bgSection.Size                   = UDim2.new(1, 0, 0, 14)
+bgSection.Position               = UDim2.new(0, 4, 0, 138)
+bgSection.BackgroundTransparency = 1
+bgSection.Text                   = "BACKGROUND"
+bgSection.TextColor3             = theme.muted
+bgSection.Font                   = Enum.Font.GothamBold
+bgSection.TextSize               = ts(9)
+bgSection.TextXAlignment         = Enum.TextXAlignment.Left
+bgSection.ZIndex                 = 32
+bgSection.Parent                 = settingsScroll
+
+local bgGrid = Instance.new("Frame")
+bgGrid.Size                   = UDim2.new(1, -8, 0, 130)
+bgGrid.Position               = UDim2.new(0, 4, 0, 156)
+bgGrid.BackgroundTransparency = 1
+bgGrid.ZIndex                 = 32
+bgGrid.Parent                 = settingsScroll
+
+bgCells = {}
+for i, id in ipairs(BACKGROUND_IDS) do
+    local col = (i - 1) % 2
+    local row = math.floor((i - 1) / 2)
+    local cell = Instance.new("ImageButton")
+    cell.Size                   = UDim2.new(0.48, 0, 0, 58)
+    cell.Position               = UDim2.new(col * 0.52, 0, 0, row * 64)
+    cell.Image                  = "rbxassetid://" .. id
+    cell.ScaleType              = Enum.ScaleType.Crop
+    cell.BackgroundColor3       = theme.dark
+    cell.BackgroundTransparency = 0.4
+    cell.ImageTransparency      = 0.3
+    cell.ZIndex                 = 33
+    cell.Parent                 = bgGrid
+    Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", cell)
+    stroke.Thickness = 2
+    stroke.Color = (id == config.BackgroundId) and theme.accentCyan or Color3.fromRGB(60, 60, 70)
+    stroke.Transparency = (id == config.BackgroundId) and 0.1 or 0.6
+    cell.MouseButton1Click:Connect(function()
+        local pick = BACKGROUND_IDS[i] or id
+        config.BackgroundId = tostring(pick)
+        bgIndex = i
+        background.Image = "rbxassetid://" .. tostring(pick)
+        saveConfig()
+        for j, c in ipairs(bgCells) do
+            local s = c:FindFirstChildOfClass("UIStroke")
+            if s then
+                s.Color = (j == i) and theme.accentCyan or Color3.fromRGB(60, 60, 70)
+                s.Transparency = (j == i) and 0.1 or 0.6
+            end
+        end
+    end)
+    bgCells[i] = cell
+end
+
+-- ─── SECCIÓN ANTI BAT MODE ─────────────────────────────────────────────────
+local modeSection = Instance.new("TextLabel")
+modeSection.Position               = UDim2.new(0, 4, 0, 296)
+modeSection.Size                   = UDim2.new(1, 0, 0, 14)
+modeSection.BackgroundTransparency = 1
+modeSection.Text                   = "ANTI BAT MODE"
+modeSection.TextColor3             = theme.muted
+modeSection.TextSize               = ts(9)
+modeSection.Font                   = Enum.Font.GothamBold
+modeSection.TextXAlignment         = Enum.TextXAlignment.Left
+modeSection.ZIndex                 = 32
+modeSection.Parent                 = settingsScroll
+
+local modeRow = Instance.new("Frame")
+modeRow.Position               = UDim2.new(0, 4, 0, 314)
+modeRow.Size                   = UDim2.new(1, -8, 0, 28)
+modeRow.BackgroundTransparency = 1
+modeRow.ZIndex                 = 32
+modeRow.Parent                 = settingsScroll
+
+local modeBtns = {}
+local function refreshModeCards()
+    for id, btn in pairs(modeBtns) do
+        local on = (config.AntiBatMode or 1) == id
+        btn.BackgroundColor3 = on and Color3.fromRGB(30, 90, 50) or theme.soft
+        btn.TextColor3 = on and theme.white or theme.muted
+        local st = btn:FindFirstChildOfClass("UIStroke")
+        if st then
+            st.Color = on and theme.accentCyan or Color3.fromRGB(50, 50, 65)
+            st.Transparency = on and 0.15 or 0.6
+        end
+    end
+end
+
+local modes = {
+    { id = 1, label = "V1" },
+    { id = 2, label = "V2" },
+}
+for i, info in ipairs(modes) do
+    local btn = Instance.new("TextButton")
+    btn.Position               = UDim2.new(0, (i - 1) * 48, 0, 0)
+    btn.Size                   = UDim2.fromOffset(42, 24)
+    btn.BackgroundColor3       = theme.soft
+    btn.Text                   = info.label
+    btn.TextColor3             = theme.muted
+    btn.TextSize               = ts(11)
+    btn.Font                   = Enum.Font.GothamBold
+    btn.AutoButtonColor        = false
+    btn.ZIndex                 = 34
+    btn.Parent                 = modeRow
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    local st = Instance.new("UIStroke", btn)
+    st.Thickness = 1
+    st.Transparency = 0.6
+    modeBtns[info.id] = btn
+    btn.MouseButton1Click:Connect(function()
+        config.AntiBatMode = info.id
+        saveConfig()
+        refreshModeCards()
+        local full = ANTI_MODE_NAMES[info.id] or info.label
+        showToast("Anti bat mode: " .. full, true)
+        if antiBatActive then
+            stopAntiBat()
+            startAntiBat()
+        end
+    end)
+end
+refreshModeCards()
+
+-- ─── SECCIÓN THEME ─────────────────────────────────────────────────────────
+local themeSection = Instance.new("TextLabel")
+themeSection.Position               = UDim2.new(0, 4, 0, 352)
+themeSection.Size                   = UDim2.new(1, 0, 0, 14)
+themeSection.BackgroundTransparency = 1
+themeSection.Text                   = "THEME"
+themeSection.TextColor3             = theme.muted
+themeSection.TextSize               = ts(9)
+themeSection.Font                   = Enum.Font.GothamBold
+themeSection.TextXAlignment         = Enum.TextXAlignment.Left
+themeSection.ZIndex                 = 32
+themeSection.Parent                 = settingsScroll
+
+local themeRow = Instance.new("Frame")
+themeRow.Position               = UDim2.new(0, 4, 0, 370)
+themeRow.Size                   = UDim2.new(1, -8, 0, 28)
+themeRow.BackgroundTransparency = 1
+themeRow.ZIndex                 = 32
+themeRow.Parent                 = settingsScroll
+
+local themeBtns = {}
+local function refreshThemeBtns()
+    for name, btn in pairs(themeBtns) do
+        local on = config.Theme == name
+        btn.BackgroundColor3 = on and (name == "Halloween" and Color3.fromRGB(120, 55, 15) or Color3.fromRGB(40, 95, 58)) or theme.soft
+        btn.TextColor3 = on and theme.white or theme.muted
+        local st = btn:FindFirstChildOfClass("UIStroke")
+        if st then
+            st.Color = on and (name == "Halloween" and Color3.fromRGB(255, 140, 40) or theme.accentCyan) or Color3.fromRGB(50, 50, 65)
+            st.Transparency = on and 0.15 or 0.6
+        end
+    end
+end
+
+local function applyFullTheme()
+    applyThemeTable()
+    BACKGROUND_IDS = getBgIds()
+    local stillValid = false
+    for _, id in ipairs(BACKGROUND_IDS) do
+        if tostring(id) == tostring(config.BackgroundId) then
+            stillValid = true
+            break
+        end
+    end
+    if not stillValid then
+        config.BackgroundId = BACKGROUND_IDS[1]
+    end
+    
+    bgGradientFrame.BackgroundColor3 = theme.bg
+    bgGradient.Color = theme.bgGradient
+    settingsGradient.Color = theme.bgGradient
+    
+    if dim then dim.BackgroundColor3 = theme.bg end
+    title.Text = (theme.titlePrefix or "") .. "Syn1ze"
+    title.TextColor3 = config.Theme == "Halloween" and Color3.fromRGB(255, 140, 40) or theme.white
+    subtitle.Text = config.Theme == "Halloween" and "ANTI BAT" or "ANTI BAT"
+    subtitle.TextColor3 = config.Theme == "Halloween" and Color3.fromRGB(255, 180, 80) or theme.muted
+    
+    for _, btn in ipairs({ lockBtn, collapseButton, settingsBtn }) do
+        if btn then
+            btn.BackgroundColor3 = theme.soft
+            btn.TextColor3 = theme.white
+        end
+    end
+    
+    if background then
+        background.Image = "rbxassetid://" .. tostring(config.BackgroundId)
+    end
+    if bgCells then
+        for i, cell in ipairs(bgCells) do
+            local id = BACKGROUND_IDS[i]
+            if cell and id then
+                cell.Image = "rbxassetid://" .. tostring(id)
+                local stroke = cell:FindFirstChildOfClass("UIStroke")
+                if stroke then
+                    local selected = tostring(id) == tostring(config.BackgroundId)
+                    stroke.Color = selected and theme.accentCyan or Color3.fromRGB(60, 60, 70)
+                    stroke.Transparency = selected and 0.1 or 0.6
+                end
+            end
+        end
+    end
+    if refreshThemeBtns then refreshThemeBtns() end
+    if config.Theme == "Halloween" then
+        spawnHalloweenFX()
+    else
+        clearHalloweenFX()
+    end
+    saveConfig()
+    showToast((config.Theme == "Halloween" and "🎃 Theme: Halloween" or "Theme: Classic"), true)
+end
+
+for i, name in ipairs({ "Classic", "Halloween" }) do
+    local btn = Instance.new("TextButton")
+    btn.Position               = UDim2.new(0, (i - 1) * 100, 0, 0)
+    btn.Size                   = UDim2.fromOffset(92, 24)
+    btn.BackgroundColor3       = theme.soft
+    btn.Text                   = name == "Halloween" and "🎃 Halloween" or "Classic"
+    btn.TextColor3             = theme.muted
+    btn.TextSize               = ts(10)
+    btn.Font                   = Enum.Font.GothamBold
+    btn.AutoButtonColor        = false
+    btn.ZIndex                 = 34
+    btn.Parent                 = themeRow
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    local st = Instance.new("UIStroke", btn)
+    st.Thickness = 1
+    st.Transparency = 0.6
+    themeBtns[name] = btn
+    btn.MouseButton1Click:Connect(function()
+        config.Theme = name
+        saveConfig()
+        applyFullTheme()
+    end)
+end
+refreshThemeBtns()
+
+settingsScroll.CanvasSize             = UDim2.new(0, 0, 0, 410)
+settingsScroll.ZIndex                 = 31
+settingsScroll.Parent                 = settingsPanel
+
+local sTitle = Instance.new("TextLabel")
+sTitle.Size                   = UDim2.new(1, -50, 0, 28)
+sTitle.Position               = UDim2.new(0, 12, 0, 8)
+sTitle.BackgroundTransparency = 1
+sTitle.Text                   = "SETTINGS"
+sTitle.TextColor3             = theme.white
+sTitle.Font                   = Enum.Font.GothamBold
+sTitle.TextSize               = ts(14)
+sTitle.TextXAlignment         = Enum.TextXAlignment.Left
+sTitle.ZIndex                 = 32
+sTitle.Parent                 = settingsPanel
+
+local sClose = Instance.new("TextButton")
+sClose.AnchorPoint            = Vector2.new(1, 0)
+sClose.Position               = UDim2.new(1, -10, 0, 8)
+sClose.Size                   = UDim2.fromOffset(24, 24)
+sClose.BackgroundColor3       = theme.dark
+sClose.Text                   = "←"
+sClose.TextColor3             = theme.white
+sClose.TextSize               = 14
+sClose.Font                   = Enum.Font.GothamBold
+sClose.ZIndex                 = 33
+sClose.Parent                 = settingsPanel
+Instance.new("UICorner", sClose).CornerRadius = UDim.new(0, 6)
+
+sClose.MouseButton1Click:Connect(function()
+    settingsOpen = false
+    settingsPanel.Visible = false
+    if not collapsed then
+        contentScroll.Visible = true
+        bottomBar.Visible = true
+    end
+    title.Visible = true
+    subtitle.Visible = true
+    lockBtn.Visible = true
+    collapseButton.Visible = true
+    settingsBtn.Visible = true
+end)
+
+settingsBtn.MouseButton1Click:Connect(function()
+    settingsOpen = true
+    settingsPanel.Visible = true
+    contentScroll.Visible = false
+    bottomBar.Visible = false
+    title.Visible = false
+    subtitle.Visible = false
+    lockBtn.Visible = false
+    collapseButton.Visible = false
+    settingsBtn.Visible = false
+end)
+
+-- Keybind capture
+local listening = false
+local listenConn = nil
+local pressOverlay = Instance.new("Frame")
+
+local function stopListening()
+    listening = false
+    if listenConn then listenConn:Disconnect() listenConn = nil end
+    if pressOverlay then pressOverlay.Visible = false end
+end
+
+pressOverlay.Size                   = UDim2.new(1, 0, 1, 0)
+pressOverlay.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+pressOverlay.BackgroundTransparency = 0.35
+pressOverlay.Visible                = false
+pressOverlay.ZIndex                 = 80
+pressOverlay.Parent                 = frame
+Instance.new("UICorner", pressOverlay).CornerRadius = UDim.new(0, 16)
+
+local pressCircle = Instance.new("Frame")
+pressCircle.AnchorPoint            = Vector2.new(0.5, 0.5)
+pressCircle.Position               = UDim2.new(0.5, 0, 0.42, 0)
+pressCircle.Size                   = UDim2.fromOffset(80, 80)
+pressCircle.BackgroundColor3       = Color3.fromRGB(50, 70, 110)
+pressCircle.BackgroundTransparency = 0.25
+pressCircle.ZIndex                 = 81
+pressCircle.Parent                 = pressOverlay
+Instance.new("UICorner", pressCircle).CornerRadius = UDim.new(1, 0)
+
+local pressTitle = Instance.new("TextLabel")
+pressTitle.AnchorPoint            = Vector2.new(0.5, 0.5)
+pressTitle.Position               = UDim2.new(0.5, 0, 0.42, 0)
+pressTitle.Size                   = UDim2.new(0.9, 0, 0, 24)
+pressTitle.BackgroundTransparency = 1
+pressTitle.Text                   = "PRESS ANY KEY"
+pressTitle.TextColor3             = theme.white
+pressTitle.Font                   = Enum.Font.GothamBold
+pressTitle.TextSize               = 14
+pressTitle.ZIndex                 = 82
+pressTitle.Parent                 = pressOverlay
+
+local pressSub = Instance.new("TextLabel")
+pressSub.AnchorPoint            = Vector2.new(0.5, 0)
+pressSub.Position               = UDim2.new(0.5, 0, 0.55, 0)
+pressSub.Size                   = UDim2.new(0.9, 0, 0, 18)
+pressSub.BackgroundTransparency = 1
+pressSub.Text                   = "ESC to cancel · 5s timeout"
+pressSub.TextColor3             = theme.muted
+pressSub.Font                   = Enum.Font.Gotham
+pressSub.TextSize               = 10
+pressSub.ZIndex                 = 82
+pressSub.Parent                 = pressOverlay
+
+kbBindBtn.MouseButton1Click:Connect(function()
+    if listening then return end
+    listening = true
+    pressOverlay.Visible = true
+    local startT = tick()
+    listenConn = UserInputService.InputBegan:Connect(function(input, gp)
+        if not listening then return end
+        if input.KeyCode == Enum.KeyCode.Escape then
+            stopListening()
+            return
+        end
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            local name = input.KeyCode.Name
+            if name and name ~= "Unknown" then
+                config.Keybind = name
+                kbBindBtn.Text = name
+                saveConfig()
+                showToast("Keybind active: " .. name, true)
+                stopListening()
+            end
+        end
+    end)
+    task.delay(5, function()
+        if listening then stopListening() end
+    end)
+end)
+
+-- ─── KEYBIND TOGGLE ANTI BAT ───────────────────────────────────────────────
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp or listening then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if input.KeyCode.Name == config.Keybind then
+            local newState = not antiBatActive
+            if newState then startAntiBat() else stopAntiBat() end
+            config.AntiBatEnabled = newState
+            setAntiVisual(newState)
+            refreshStatus()
+            saveConfig()
+            showToast(newState and ("Keybind · Anti bat on [" .. config.Keybind .. "]") or ("Keybind · Anti bat off [" .. config.Keybind .. "]"), newState)
+        end
+    end
+end)
+
+-- ─── DRAG ──────────────────────────────────────────────────────────────────
+local dragging   = false
+local dragStart  = nil
+local startPos   = nil
+local touchIndex = nil
+
+local function clampToViewport(pos)
+    local cam = workspace.CurrentCamera
+    local viewport = cam and cam.ViewportSize or Vector2.new(1280, 720)
+    local inset = GuiService:GetGuiInset()
+    local x = math.clamp(pos.X.Offset + pos.X.Scale * viewport.X, 0,
+        math.max(0, viewport.X - frame.AbsoluteSize.X))
+    local y = math.clamp(pos.Y.Offset + pos.Y.Scale * (viewport.Y - inset.Y), 0,
+        math.max(0, viewport.Y - inset.Y - frame.AbsoluteSize.Y))
+    return UDim2.fromOffset(x, y)
+end
+
+local function beginDrag(input)
+    if config.Locked then return end
+    if settingsOpen then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging   = true
+        dragStart  = input.Position
+        startPos   = frame.Position
+        touchIndex = input.UserInputType == Enum.UserInputType.Touch and input.UserInputIndex or nil
+    end
+end
+
+frame.InputBegan:Connect(beginDrag)
+header.InputBegan:Connect(beginDrag)
+if dragCatch then
+    dragCatch.InputBegan:Connect(beginDrag)
+end
+contentScroll.InputBegan:Connect(beginDrag)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging or config.Locked then return end
+    local isTouch = input.UserInputType == Enum.UserInputType.Touch
+    if isTouch or input.UserInputType == Enum.UserInputType.MouseMovement then
+        if isTouch and touchIndex and input.UserInputIndex ~= touchIndex then return end
+        local delta = input.Position - dragStart
+        frame.Position = clampToViewport(UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y))
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if not dragging then return end
+    local isTouch = input.UserInputType == Enum.UserInputType.Touch
+    if isTouch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if isTouch and touchIndex and input.UserInputIndex ~= touchIndex then return end
+        dragging   = false
+        touchIndex = nil
+    end
+end)
+
+-- ─── INIT ──────────────────────────────────────────────────────────────────
+if config.AntiBatEnabled then
+    startAntiBat()
+    setAntiVisual(true)
+end
+if config.InfJumpEnabled then
+    startInfJump()
+    setInfVisual(true)
+end
+if config.AntiDieEnabled then
+    startAntiDie()
+    setAntiDieVisual(true)
+end
+refreshStatus()
+
+-- Animación de apertura premium
+frame.Size = UDim2.fromOffset(0, 0)
+frame.BackgroundTransparency = 1
+TweenService:Create(frame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size = UDim2.fromOffset(scaledW(), scaledH()),
+    BackgroundTransparency = 0.2
+}):Play()
+
+print("[Syn1ze Anti Bat] loaded")
